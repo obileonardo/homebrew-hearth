@@ -1,0 +1,66 @@
+name: Follow Hearth releases
+
+# Checks the latest (non-prerelease) Hearth release daily and updates the cask
+# once the new version installs and verifies cleanly.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_ANALYTICS: 1
+      HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compare with the latest release
+        id: latest
+        run: |
+          tag=$(gh release view -R obileonardo/hearth-macos --json tagName -q .tagName)
+          version=${tag#v}
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/hearth.rb)
+          echo "Latest release $version, cask $current"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected tag $tag" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          [[ "$version" != "$current" ]] && echo "changed=true" >> "$GITHUB_OUTPUT" || true
+      - name: Update version and checksum
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          dir=$(mktemp -d)
+          gh release download "v$VERSION" -R obileonardo/hearth-macos -D "$dir" \
+            -p "Hearth-$VERSION-universal.dmg" -p "Hearth-$VERSION-universal.dmg.sha256"
+          (cd "$dir" && shasum -a 256 -c "Hearth-$VERSION-universal.dmg.sha256")
+          sha=$(shasum -a 256 "$dir/Hearth-$VERSION-universal.dmg" | cut -d' ' -f1)
+          sed -i '' -e "s/^  version \".*\"$/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"$/  sha256 \"$sha\"/" Casks/hearth.rb
+          git diff
+      - name: Use this checkout as the obileonardo/hearth tap
+        if: steps.latest.outputs.changed == 'true'
+        run: |
+          taps="$(brew --repository)/Library/Taps/obileonardo"
+          mkdir -p "$taps"
+          ln -s "$GITHUB_WORKSPACE" "$taps/homebrew-hearth"
+      - name: Lint, install, verify and uninstall
+        if: steps.latest.outputs.changed == 'true'
+        run: .github/scripts/check-cask.sh
+      - name: Commit
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Hearth $VERSION"
+          git push
