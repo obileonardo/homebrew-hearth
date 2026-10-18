@@ -18,7 +18,12 @@ installed=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString)
 codesign --verify --strict --deep "$app"
 codesign -dvv "$app" 2>&1 | grep -q "^Authority=Developer ID Application: .*($team)$" \
   || { echo "Not signed with Developer ID team $team" >&2; exit 1; }
-xcrun stapler validate "$app"
+# stapler validate asks Apple's ticket service online; retry dropped connections.
+for attempt in 1 2 3 4; do
+  xcrun stapler validate "$app" && break
+  [[ $attempt -lt 4 ]] || { echo "Stapled ticket could not be validated" >&2; exit 1; }
+  sleep $((attempt * 15))
+done
 
 # Hosted runners may have Gatekeeper assessments switched off; only judge the
 # result when the assessment really ran.
