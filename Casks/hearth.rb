@@ -1,6 +1,6 @@
 cask "hearth" do
-  version "0.1.8"
-  sha256 "7120c2b5821b80809db66fcf0a4a14c21d7a445c514f12fc08520b209c75d021"
+  version "0.1.10"
+  sha256 "6b9e4ff935886ab43041f8a752200aaac34591c5447c7ee73a40097db4139980"
 
   url "https://github.com/obileonardo/hearth-macos/releases/download/v#{version}/Hearth-#{version}-universal.dmg"
   name "Hearth"
